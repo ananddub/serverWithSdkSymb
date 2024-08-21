@@ -1,11 +1,28 @@
 import { DeleteRecord, InsertRecord, ReadRecord } from '../utils/mysql.js';
 import CryptoEncryption from '../models/EncryptDecrypt.js';
-const socketData = [];
-const insertnumber = new Set();
-const updatenumber = new Set();
-const deletenumber = new Set();
-const allnumber = new Set();
-const filternumber = new Set();
+const socketDataMap = new Map();
+socketDataMap.set("INSERT", new Map());
+socketDataMap.set("DELETE", new Map());
+socketDataMap.set("FILTER", new Map());
+socketDataMap.set("UPDATE", new Map());
+socketDataMap.set("*", new Map());
+const socketid = new Map();
+function verifyObjFilter(obj1, obj2) {
+    if (typeof obj1 !== 'object' || typeof obj2 !== 'object' || obj1 === null || obj2 === null) {
+        return false;
+    }
+    const key1 = Object.keys(obj1);
+    const key2 = Object.keys(obj2);
+    const min = Math.min(key1.length, key2.length);
+    const objwillgo1 = key1.length === min ? obj1 : obj2;
+    const objwillgo2 = key1.length !== min ? obj1 : obj2;
+    for (let x of Object.keys(objwillgo1)) {
+        if (objwillgo1[x] !== objwillgo2[x]) {
+            return false;
+        }
+    }
+    return true;
+}
 // Express route handler
 export const Symb = async (req, res) => {
     try {
@@ -13,6 +30,7 @@ export const Symb = async (req, res) => {
         const password = process.env.PASSWORD || '';
         const crypt = new CryptoEncryption();
         const data = await crypt.jsondecrypt(encryptedData, password);
+        // const data = req.body
         if (!data)
             return res.send({
                 data: [],
@@ -29,48 +47,16 @@ export const Symb = async (req, res) => {
         else {
             result = await InsertRecord(query, condition);
         }
-        switch (event) {
-            case 'SELECT': break;
-            case 'INSERT':
-                console.log(event);
-                insertnumber.forEach((i) => {
-                    const socket = socketData[i];
-                    if (socket.tablename.has(tablename)) {
-                        socket.socketid.emit('custom_insert_channel', { data: result, tablename: tablename });
-                    }
-                });
-                break;
-            case 'UPDATE':
-                updatenumber.forEach((i) => {
-                    const socket = socketData[i];
-                    if (socket.tablename.has(tablename)) {
-                        socket.socketid.emit('custom_update_channel', { data: result, tablename: tablename });
-                    }
-                });
-                break;
-            case 'DELETE':
-                deletenumber.forEach((i) => {
-                    const socket = socketData[i];
-                    if (socket.tablename.has(tablename)) {
-                        socket.socketid.emit('custom_delete_channel', { data: result, tablename: tablename });
-                    }
-                });
-                break;
-            case 'FILTER':
-                filternumber.forEach((i) => {
-                    const socket = socketData[i];
-                    if (socket.tablename.has(tablename)) {
-                        socket.socketid.emit('custom_filter_channel', { data: result, tablename: tablename });
-                    }
-                });
-                break;
-        }
+        console.log(socketDataMap.get(event));
+        console.log(socketDataMap.get(event)?.get(tablename)?.forEach((socket) => socket.channel));
+        socketDataMap.get(event)?.get(tablename)?.forEach((socket) => {
+            if (verifyObjFilter(socket.filter, result[0])) {
+                socket.socketid.emit(socket.channel, { data: result, tablename: tablename });
+            }
+        });
         if (event !== "SELECT") {
-            allnumber.forEach((i) => {
-                const socket = socketData[i];
-                if (socket.tablename.has(tablename) && result.length > 0) {
-                    socket.socketid.emit('custom_all_channel', { data: result, tablename: tablename });
-                }
+            socketDataMap.get("*")?.get(tablename)?.forEach((socket) => {
+                socket.socketid.emit(socket.channel, { data: result, tablename: tablename });
             });
         }
         console.warn("event :", event, " -- tablename :", tablename);
@@ -89,129 +75,124 @@ export const Symb = async (req, res) => {
 };
 export const SocketSymb = (socket) => {
     console.log('A user connected');
-    socket.on('custom_insert_channel', (payload) => {
-        const index = socketData.findIndex(s => s.socketid === socket);
-        if (index !== -1) {
-            const obj = {
-                event: 'INSERT',
-                socketid: socket,
-                tablename: new Set([...socketData[index].tablename, payload.tablename])
-            };
-            socketData[index] = obj;
+    socket.on('custom_insert_channel', (payload = "") => {
+        const map = socketDataMap.get(payload.event);
+        const obj = {
+            channel: payload.channel,
+            socketid: socket,
+            filter: {}
+        };
+        if (map !== undefined && map.has(payload.tablename)) {
+            map.get(payload.tablename)?.push(obj);
         }
-        else {
-            const obj = {
-                event: 'INSERT',
-                socketid: socket,
-                tablename: new Set([payload.tablename])
-            };
-            socketData.push(obj);
+        else if (map != undefined) {
+            socketDataMap.get(payload.event)?.set(payload.tablename, [obj]);
         }
-        insertnumber.add(socketData.findIndex(s => s.socketid === socket));
+        if (socketid.has(socket.id)) {
+        }
+        console.log('custom_insert_channel :', socketDataMap);
     });
     socket.on('custom_update_channel', (payload) => {
-        const index = socketData.findIndex(s => s.socketid === socket);
-        if (index !== -1) {
-            const obj = {
-                event: 'UPDATE',
-                socketid: socket,
-                tablename: new Set([...socketData[index].tablename, payload.tablename])
-            };
-            socketData[index] = obj;
-        }
-        else {
-            const obj = {
-                event: 'UPDATE',
-                socketid: socket,
-                tablename: new Set([payload.tablename])
-            };
-            socketData.push(obj);
-        }
-        updatenumber.add(socketData.findIndex(s => s.socketid === socket));
+        const map = socketDataMap.get(payload.event);
+        const obj = {
+            channel: payload.channel,
+            socketid: socket,
+            filter: {}
+        };
+        if (map !== undefined && map.has(payload.tablename))
+            map.get(payload.tablename)?.push(obj);
+        else if (map != undefined)
+            socketDataMap.get(payload.event)?.set(payload.tablename, [obj]);
+        console.log('custom_insert_channel :', socketDataMap);
     });
     socket.on('custom_delete_channel', (payload) => {
-        const index = socketData.findIndex(s => s.socketid === socket);
-        if (index !== -1) {
-            const obj = {
-                event: 'DELETE',
-                socketid: socket,
-                tablename: new Set([...socketData[index].tablename, payload.tablename])
-            };
-            socketData[index] = obj;
-        }
-        else {
-            const obj = {
-                event: 'DELETE',
-                socketid: socket,
-                tablename: new Set([payload.tablename])
-            };
-            socketData.push(obj);
-        }
-        deletenumber.add(socketData.findIndex(s => s.socketid === socket));
+        const map = socketDataMap.get(payload.event);
+        const obj = {
+            channel: payload.channel,
+            socketid: socket,
+            filter: {}
+        };
+        if (map !== undefined && map.has(payload.tablename))
+            map.get(payload.tablename)?.push(obj);
+        else if (map != undefined)
+            socketDataMap.get(payload.event)?.set(payload.tablename, [obj]);
+        console.log('custom_insert_channel :', socketDataMap);
     });
     socket.on('custom_all_channel', (payload) => {
-        const index = socketData.findIndex(s => s.socketid === socket);
-        if (index !== -1) {
-            const obj = {
-                event: '*',
-                socketid: socket,
-                tablename: new Set([...socketData[index].tablename, payload.tablename])
-            };
-            socketData[index] = obj;
-        }
-        else {
-            const obj = {
-                event: '*',
-                socketid: socket,
-                tablename: new Set([payload.tablename])
-            };
-            socketData.push(obj);
-        }
-        allnumber.add(socketData.findIndex(s => s.socketid === socket));
+        const map = socketDataMap.get(payload.event);
+        const obj = {
+            channel: payload.channel,
+            socketid: socket,
+            filter: {}
+        };
+        if (map !== undefined && map.has(payload.tablename))
+            map.get(payload.tablename)?.push(obj);
+        else if (map != undefined)
+            socketDataMap.get(payload.event)?.set(payload.tablename, [obj]);
+        console.log('custom_insert_channel :', socketDataMap);
     });
     socket.on('custom_filter_channel', (payload) => {
-        const index = socketData.findIndex(s => s.socketid === socket);
-        if (index !== -1) {
-            const obj = {
-                event: 'FILTER',
-                socketid: socket,
-                tablename: new Set([...socketData[index].tablename, payload.tablename]),
-                filter: payload.filter
-            };
-            socketData[index] = obj;
-        }
-        else {
-            const obj = {
-                event: 'FILTER',
-                socketid: socket,
-                tablename: new Set([payload.tablename]),
-                filter: payload.filter
-            };
-            socketData.push(obj);
-        }
-        filternumber.add(socketData.findIndex(s => s.socketid === socket));
+        const map = socketDataMap.get(payload.event);
+        const obj = {
+            channel: payload.channel,
+            socketid: socket,
+            filter: payload.filter
+        };
+        if (map !== undefined && map.has(payload.tablename))
+            map.get(payload.tablename)?.push(obj);
+        else if (map != undefined)
+            socketDataMap.get(payload.event)?.set(payload.tablename, [obj]);
+        console.log('custom_insert_channel :', socketDataMap);
     });
     socket.on('custom_remove_channel', (payload) => {
-        const index = socketData.findIndex(s => s.socketid === socket);
-        socketData[index].tablename.delete(payload.tablename);
-        if (socketData[index].tablename.size == 0) {
-            socketData[index].socketid.disconnect();
+        const map = socketDataMap.get(payload.event);
+        if (map) {
+            const array = map.get(payload.tablename);
+            if (array) {
+                const updatedArray = array.filter(obj => obj.socketid.id !== socket.id);
+                if (updatedArray.length > 0) {
+                    map.set(payload.tablename, updatedArray);
+                }
+                else {
+                    map.delete(payload.tablename); // If the array is empty, delete the tableName entry
+                }
+            }
+            if (map.size === 0) {
+                socketDataMap.delete(payload.tablename); // If the map is empty, delete the event entry
+            }
+            console.log(`After deletion by event (${payload.event}), table (${payload.tablename}), and socket ID:`, socketDataMap);
         }
+        ;
     });
     socket.on('custom_removeall_channel', () => {
-        const index = socketData.findIndex(s => s.socketid === socket);
-        socketData[index].socketid.disconnect();
+        for (const [event, map] of socketDataMap.entries()) {
+            for (const [tablename, array] of map.entries()) {
+                const updatedArray = array.filter(obj => obj.socketid.id !== socket.id);
+                if (updatedArray.length > 0) {
+                    map.set(tablename, updatedArray);
+                }
+                else {
+                    map.delete(tablename);
+                }
+            }
+            console.log('After deletion by socket ID:', socketDataMap);
+        }
+        ;
     });
     socket.on('disconnect', () => {
-        console.log('A user disconnected');
-        const index = socketData.findIndex(s => s.socketid === socket);
-        if (index !== -1) {
-            socketData.splice(index, 1);
-            insertnumber.delete(index);
-            updatenumber.delete(index);
-            deletenumber.delete(index);
-            allnumber.delete(index);
-            filternumber.delete(index);
+        for (const [event, map] of socketDataMap.entries()) {
+            for (const [tablename, array] of map.entries()) {
+                const updatedArray = array.filter(obj => obj.socketid.id !== socket.id);
+                if (updatedArray.length > 0) {
+                    map.set(tablename, updatedArray);
+                }
+                else {
+                    map.delete(tablename);
+                }
+            }
+            console.log('After deletion by socket ID:', socketDataMap);
         }
+        console.log('A user disconnected');
+        console.log('map ', socketDataMap);
     });
 };

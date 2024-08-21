@@ -5,23 +5,42 @@ import { DeleteRecord, InsertRecord, ReadRecord } from '../utils/mysql.js'
 import { Server, Socket } from 'socket.io'
 import crypto from 'crypto'
 import CryptoEncryption from '../models/EncryptDecrypt.js';
-const socketData: Socketstore[] = [];
-const insertnumber: Set<number> = new Set();
-const updatenumber: Set<number> = new Set();
-const deletenumber: Set<number> = new Set();
-const allnumber: Set<number> = new Set();
-const filternumber: Set<number> = new Set();
+const socketDataMap: Map<string, Map<string, Array<any>>> = new Map();
+socketDataMap.set("INSERT", new Map())
+socketDataMap.set("DELETE", new Map())
+socketDataMap.set("FILTER", new Map())
+socketDataMap.set("UPDATE", new Map())
+socketDataMap.set("*", new Map())
+
+const socketid: Map<string, Map<string, Map<string, any>>> = new Map()
 type Socketstore = {
     socketid: Socket,
-    event: string,
-    tablename: Set<string>,
-    filter?: string
+    channel: string,
+    filter?: any
 };
 type QuerySymb = {
     query: string,
     event: string,
     tablename: string,
     condition: string
+}
+
+
+function verifyObjFilter(obj1: any, obj2: any) {
+    if (typeof obj1 !== 'object' || typeof obj2 !== 'object' || obj1 === null || obj2 === null) {
+        return false;
+    }
+    const key1 = Object.keys(obj1)
+    const key2 = Object.keys(obj2)
+    const min = Math.min(key1.length, key2.length)
+    const objwillgo1 = key1.length === min ? obj1 : obj2
+    const objwillgo2 = key1.length !== min ? obj1 : obj2
+    for (let x of Object.keys(objwillgo1)) {
+        if (objwillgo1[x] !== objwillgo2[x]) {
+            return false
+        }
+    }
+    return true;
 }
 // Express route handler
 export const Symb = async (req: Request, res: Response) => {
@@ -30,6 +49,7 @@ export const Symb = async (req: Request, res: Response) => {
         const password = process.env.PASSWORD || '';
         const crypt = new CryptoEncryption()
         const data = await crypt.jsondecrypt(encryptedData, password);
+        // const data = req.body
         if (!data) return res.send({
             data: [],
             error: 'please send your valid query'
@@ -43,52 +63,20 @@ export const Symb = async (req: Request, res: Response) => {
         } else {
             result = await InsertRecord(query, condition);
         }
+        console.log(socketDataMap.get(event))
+        console.log(socketDataMap.get(event)?.get(tablename)?.forEach((socket) => socket.channel))
 
-        switch (event) {
-            case 'SELECT': break;
-            case 'INSERT':
-                console.log(event);
-                insertnumber.forEach((i: number) => {
-                    const socket = socketData[i];
-                    if (socket.tablename.has(tablename)) {
-                        socket.socketid.emit('custom_insert_channel', { data: result, tablename: tablename });
-                    }
-                });
-                break;
-            case 'UPDATE':
-                updatenumber.forEach((i: number) => {
-                    const socket = socketData[i];
-                    if (socket.tablename.has(tablename)) {
-                        socket.socketid.emit('custom_update_channel', { data: result, tablename: tablename });
-                    }
-                });
-                break;
-            case 'DELETE':
-                deletenumber.forEach((i: number) => {
-                    const socket = socketData[i];
-                    if (socket.tablename.has(tablename)) {
-                        socket.socketid.emit('custom_delete_channel', { data: result, tablename: tablename });
-                    }
-                });
-                break;
-            case 'FILTER':
-                filternumber.forEach((i: number) => {
-                    const socket = socketData[i];
-                    if (socket.tablename.has(tablename)) {
-                        socket.socketid.emit('custom_filter_channel', { data: result, tablename: tablename });
-                    }
-                });
-                break;
-        }
-
+        socketDataMap.get(event)?.get(tablename)?.forEach((socket: any) => {
+            if (verifyObjFilter(socket.filter, result[0])) {
+                socket.socketid.emit(socket.channel, { data: result, tablename: tablename });
+            }
+        });
         if (event !== "SELECT") {
-            allnumber.forEach((i: number) => {
-                const socket = socketData[i];
-                if (socket.tablename.has(tablename) && result.length > 0) {
-                    socket.socketid.emit('custom_all_channel', { data: result, tablename: tablename });
-                }
+            socketDataMap.get("*")?.get(tablename)?.forEach((socket: any) => {
+                socket.socketid.emit(socket.channel, { data: result, tablename: tablename });
             });
         }
+
         console.warn("event :", event, " -- tablename :", tablename)
         return res.status(200).send({
             data: result,
@@ -103,136 +91,123 @@ export const Symb = async (req: Request, res: Response) => {
         });
     }
 }
-
-
 export const SocketSymb = (socket: Socket) => {
     console.log('A user connected');
-
-    socket.on('custom_insert_channel', (payload: any) => {
-        const index = socketData.findIndex(s => s.socketid === socket);
-        if (index !== -1) {
-            const obj: Socketstore = {
-                event: 'INSERT',
-                socketid: socket,
-                tablename: new Set([...socketData[index].tablename, payload.tablename])
-            };
-            socketData[index] = obj;
-        } else {
-            const obj: Socketstore = {
-                event: 'INSERT',
-                socketid: socket,
-                tablename: new Set([payload.tablename])
-            };
-            socketData.push(obj);
+    socket.on('custom_insert_channel', (payload: any = "") => {
+        const map: Map<string, any> | undefined = socketDataMap.get(payload.event)
+        const obj: Socketstore = {
+            channel: payload.channel,
+            socketid: socket,
+            filter: {}
         }
-        insertnumber.add(socketData.findIndex(s => s.socketid === socket));
+        if (map !== undefined && map.has(payload.tablename)) {
+            map.get(payload.tablename)?.push(obj)
+        }
+        else if (map != undefined) {
+            socketDataMap.get(payload.event)?.set(payload.tablename, [obj]);
+        }
+        if (socketid.has(socket.id)) {
+        }
+        console.log('custom_insert_channel :', socketDataMap);
     });
 
     socket.on('custom_update_channel', (payload: any) => {
-        const index = socketData.findIndex(s => s.socketid === socket);
-        if (index !== -1) {
-            const obj: Socketstore = {
-                event: 'UPDATE',
-                socketid: socket,
-                tablename: new Set([...socketData[index].tablename, payload.tablename])
-            };
-            socketData[index] = obj;
-        } else {
-            const obj: Socketstore = {
-                event: 'UPDATE',
-                socketid: socket,
-                tablename: new Set([payload.tablename])
-            };
-            socketData.push(obj);
+        const map: Map<string, any> | undefined = socketDataMap.get(payload.event)
+        const obj = {
+            channel: payload.channel,
+            socketid: socket,
+            filter: {}
         }
-        updatenumber.add(socketData.findIndex(s => s.socketid === socket));
+        if (map !== undefined && map.has(payload.tablename)) map.get(payload.tablename)?.push(obj)
+        else if (map != undefined)
+            socketDataMap.get(payload.event)?.set(payload.tablename, [obj]);
+        console.log('custom_insert_channel :', socketDataMap);
     });
 
     socket.on('custom_delete_channel', (payload: any) => {
-        const index = socketData.findIndex(s => s.socketid === socket);
-        if (index !== -1) {
-            const obj: Socketstore = {
-                event: 'DELETE',
-                socketid: socket,
-                tablename: new Set([...socketData[index].tablename, payload.tablename])
-            };
-            socketData[index] = obj;
-        } else {
-            const obj: Socketstore = {
-                event: 'DELETE',
-                socketid: socket,
-                tablename: new Set([payload.tablename])
-            };
-            socketData.push(obj);
+        const map: Map<string, any> | undefined = socketDataMap.get(payload.event)
+        const obj = {
+            channel: payload.channel,
+            socketid: socket,
+            filter: {}
         }
-        deletenumber.add(socketData.findIndex(s => s.socketid === socket));
+        if (map !== undefined && map.has(payload.tablename)) map.get(payload.tablename)?.push(obj)
+        else if (map != undefined)
+            socketDataMap.get(payload.event)?.set(payload.tablename, [obj]);
+        console.log('custom_insert_channel :', socketDataMap);
     });
 
     socket.on('custom_all_channel', (payload: any) => {
-        const index = socketData.findIndex(s => s.socketid === socket);
-        if (index !== -1) {
-            const obj: Socketstore = {
-                event: '*',
-                socketid: socket,
-                tablename: new Set([...socketData[index].tablename, payload.tablename])
-            };
-            socketData[index] = obj;
-        } else {
-            const obj: Socketstore = {
-                event: '*',
-                socketid: socket,
-                tablename: new Set([payload.tablename])
-            };
-            socketData.push(obj);
+        const map: Map<string, any> | undefined = socketDataMap.get(payload.event)
+        const obj = {
+            channel: payload.channel,
+            socketid: socket,
+            filter: {}
         }
-        allnumber.add(socketData.findIndex(s => s.socketid === socket));
+        if (map !== undefined && map.has(payload.tablename)) map.get(payload.tablename)?.push(obj)
+        else if (map != undefined)
+            socketDataMap.get(payload.event)?.set(payload.tablename, [obj]);
+        console.log('custom_insert_channel :', socketDataMap);
     });
 
     socket.on('custom_filter_channel', (payload: any) => {
-        const index = socketData.findIndex(s => s.socketid === socket);
-        if (index !== -1) {
-            const obj: Socketstore = {
-                event: 'FILTER',
-                socketid: socket,
-                tablename: new Set([...socketData[index].tablename, payload.tablename]),
-                filter: payload.filter
-            };
-            socketData[index] = obj;
-        } else {
-            const obj: Socketstore = {
-                event: 'FILTER',
-                socketid: socket,
-                tablename: new Set([payload.tablename]),
-                filter: payload.filter
-            };
-            socketData.push(obj);
+        const map: Map<string, any> | undefined = socketDataMap.get(payload.event)
+        const obj = {
+            channel: payload.channel,
+            socketid: socket,
+            filter: payload.filter
         }
-        filternumber.add(socketData.findIndex(s => s.socketid === socket));
+        if (map !== undefined && map.has(payload.tablename)) map.get(payload.tablename)?.push(obj)
+        else if (map != undefined)
+            socketDataMap.get(payload.event)?.set(payload.tablename, [obj]);
+        console.log('custom_insert_channel :', socketDataMap);
     });
 
     socket.on('custom_remove_channel', (payload: any) => {
-        const index = socketData.findIndex(s => s.socketid === socket);
-        socketData[index].tablename.delete(payload.tablename)
-        if (socketData[index].tablename.size == 0) {
-            socketData[index].socketid.disconnect()
-        }
+        const map = socketDataMap.get(payload.event);
+        if (map) {
+            const array = map.get(payload.tablename);
+            if (array) {
+                const updatedArray = array.filter(obj => obj.socketid.id !== socket.id);
+                if (updatedArray.length > 0) {
+                    map.set(payload.tablename, updatedArray);
+                } else {
+                    map.delete(payload.tablename);  // If the array is empty, delete the tableName entry
+                }
+            }
+            if (map.size === 0) {
+                socketDataMap.delete(payload.tablename);  // If the map is empty, delete the event entry
+            }
+            console.log(`After deletion by event (${payload.event}), table (${payload.tablename}), and socket ID:`, socketDataMap);
+        };
     })
     socket.on('custom_removeall_channel', () => {
-        const index = socketData.findIndex(s => s.socketid === socket);
-        socketData[index].socketid.disconnect()
-
+        for (const [event, map] of socketDataMap.entries()) {
+            for (const [tablename, array] of map.entries()) {
+                const updatedArray = array.filter(obj => obj.socketid.id !== socket.id);
+                if (updatedArray.length > 0) {
+                    map.set(tablename, updatedArray);
+                } else {
+                    map.delete(tablename);
+                }
+            }
+            console.log('After deletion by socket ID:', socketDataMap);
+        };
     })
 
     socket.on('disconnect', () => {
-        console.log('A user disconnected');
-        const index = socketData.findIndex(s => s.socketid === socket);
-        if (index !== -1) {
-            socketData.splice(index, 1);
-            insertnumber.delete(index);
-            updatenumber.delete(index);
-            deletenumber.delete(index);
-            allnumber.delete(index);
-            filternumber.delete(index);
+        for (const [event, map] of socketDataMap.entries()) {
+            for (const [tablename, array] of map.entries()) {
+                const updatedArray = array.filter(obj => obj.socketid.id !== socket.id);
+                if (updatedArray.length > 0) {
+                    map.set(tablename, updatedArray);
+                } else {
+                    map.delete(tablename);
+                }
+            }
+            console.log('After deletion by socket ID:', socketDataMap);
         }
+        console.log('A user disconnected');
+        console.log('map ', socketDataMap)
     });
 }
