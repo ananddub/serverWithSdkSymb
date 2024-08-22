@@ -9,24 +9,31 @@ socketDataMap.set("*", new Map());
 const socketid = new Map();
 function verifyObjFilter(obj1, obj2) {
     if (typeof obj1 !== 'object' || typeof obj2 !== 'object' || obj1 === null || obj2 === null) {
-        return false;
+        return [];
     }
-    const key1 = Object.keys(obj1);
-    const key2 = Object.keys(obj2);
-    const min = Math.min(key1.length, key2.length);
-    const objwillgo1 = key1.length === min ? obj1 : obj2;
-    const objwillgo2 = key1.length !== min ? obj1 : obj2;
-    for (let x of Object.keys(objwillgo1)) {
-        if (objwillgo1[x] !== objwillgo2[x]) {
-            return false;
+    const filter = new Map(Object.entries(obj1));
+    const result = [];
+    for (let col of obj2) {
+        let isMatch = true;
+        for (let [key, value] of filter) {
+            if (col[key] !== value) {
+                isMatch = false;
+                break;
+            }
+        }
+        if (isMatch) {
+            result.push(col);
         }
     }
-    return true;
+    return result;
+}
+function isEmptyObject(obj) {
+    return Object.keys(obj).length === 0 && obj.constructor === Object;
 }
 // Express route handler
 export const Symb = async (req, res) => {
     try {
-        const encryptedData = req.body.encrypt; // Assuming the encrypted data is in `encryptedData`
+        const encryptedData = req.body.encrypt;
         const password = process.env.PASSWORD || '';
         const crypt = new CryptoEncryption();
         const data = await crypt.jsondecrypt(encryptedData, password);
@@ -50,7 +57,13 @@ export const Symb = async (req, res) => {
         console.log(socketDataMap.get(event));
         console.log(socketDataMap.get(event)?.get(tablename)?.forEach((socket) => socket.channel));
         socketDataMap.get(event)?.get(tablename)?.forEach((socket) => {
-            if (verifyObjFilter(socket.filter, result[0])) {
+            if (!isEmptyObject(socket.filter)) {
+                const newresult = verifyObjFilter(socket.filter, result);
+                if (newresult.length > 0) {
+                    socket.socketid.emit(socket.channel, { data: newresult, tablename: tablename });
+                }
+            }
+            else {
                 socket.socketid.emit(socket.channel, { data: result, tablename: tablename });
             }
         });

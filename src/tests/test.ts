@@ -1,29 +1,17 @@
-
-import crypto from 'crypto';
-
-function decrypt(text: string, key: Buffer): string {
-    const textParts = text.split(':');
-    const iv = Buffer.from(textParts.shift() as string, 'hex');
-    const encryptedText = Buffer.from(textParts.join(':'), 'hex');
-    const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
-    let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
+function verifyObjFilter(obj1: any, obj2: any) {
+    if (typeof obj1 !== 'object' || typeof obj2 !== 'object' || obj1 === null || obj2 === null) {
+        return false;
+    }
+    const key1 = Object.keys(obj1)
+    const key2 = Object.keys(obj2)
+    const min = Math.min(key1.length, key2.length)
+    const objwillgo1 = key1.length === min ? obj1 : obj2
+    const objwillgo2 = key1.length !== min ? obj1 : obj2
+    for (let x of Object.keys(objwillgo1)) {
+        if (objwillgo1[x] !== objwillgo2[x]) {
+            return false
+        }
+    }
+    return true;
 }
-
-function encrypt(text: string, key: Buffer): string {
-    const iv = crypto.randomBytes(16); // Initialization vector
-    const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
-    let encrypted = cipher.update(text, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
-    return iv.toString('hex') + ':' + encrypted;
-}
-
-const key: Buffer = crypto.randomBytes(32); // 256-bit key
-const text: string = 'Hello, World!';
-const encryptedText: string = encrypt(text, key);
-console.log('Encrypted:', encryptedText);
-
-const decryptedText: string = decrypt(encryptedText, key);
-console.log('Decrypted:', decryptedText);
 
