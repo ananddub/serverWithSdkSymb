@@ -43,36 +43,37 @@ export const Symb = async (req, res) => {
                 data: [],
                 error: 'please send your valid query'
             });
-        const { query, event, tablename, condition } = data;
+        const { query, event, database, tablename, condition } = data;
         let result;
         if (event === "SELECT") {
-            result = await ReadRecord(query);
+            result = await ReadRecord(query, database);
         }
         else if (event === "DELETE") {
-            result = await DeleteRecord(query, condition);
+            result = await DeleteRecord(query, condition, database);
         }
         else {
-            result = await InsertRecord(query, condition);
+            result = await InsertRecord(query, condition, database);
         }
         console.log(socketDataMap.get(event));
         console.log(socketDataMap.get(event)?.get(tablename)?.forEach((socket) => socket.channel));
         socketDataMap.get(event)?.get(tablename)?.forEach((socket) => {
-            if (!isEmptyObject(socket.filter)) {
+            if (!isEmptyObject(socket.filter) && socket.database === database) {
                 const newresult = verifyObjFilter(socket.filter, result);
                 if (newresult.length > 0) {
                     socket.socketid.emit(socket.channel, { data: newresult, tablename: tablename });
                 }
             }
-            else {
+            else if (socket.database === database) {
                 socket.socketid.emit(socket.channel, { data: result, tablename: tablename });
             }
         });
         if (event !== "SELECT") {
             socketDataMap.get("*")?.get(tablename)?.forEach((socket) => {
-                socket.socketid.emit(socket.channel, { data: result, tablename: tablename });
+                if (socket.database === database)
+                    socket.socketid.emit(socket.channel, { data: result, tablename: tablename });
             });
         }
-        console.warn("event :", event, " -- tablename :", tablename);
+        console.warn("event :", event, " -- database :", database, " -- tablename :", tablename);
         return res.status(200).send({
             data: result,
             error: '',
@@ -93,6 +94,7 @@ export const SocketSymb = (socket) => {
         const obj = {
             channel: payload.channel,
             socketid: socket,
+            database: payload.database,
             filter: {}
         };
         if (map !== undefined && map.has(payload.tablename)) {
@@ -110,6 +112,7 @@ export const SocketSymb = (socket) => {
         const obj = {
             channel: payload.channel,
             socketid: socket,
+            database: payload.database,
             filter: {}
         };
         if (map !== undefined && map.has(payload.tablename))
@@ -123,6 +126,7 @@ export const SocketSymb = (socket) => {
         const obj = {
             channel: payload.channel,
             socketid: socket,
+            database: payload.database,
             filter: {}
         };
         if (map !== undefined && map.has(payload.tablename))
@@ -136,6 +140,7 @@ export const SocketSymb = (socket) => {
         const obj = {
             channel: payload.channel,
             socketid: socket,
+            database: payload.database,
             filter: {}
         };
         if (map !== undefined && map.has(payload.tablename))
@@ -149,6 +154,7 @@ export const SocketSymb = (socket) => {
         const obj = {
             channel: payload.channel,
             socketid: socket,
+            database: payload.database,
             filter: payload.filter
         };
         if (map !== undefined && map.has(payload.tablename))

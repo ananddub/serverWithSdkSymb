@@ -5,8 +5,15 @@ export const localDatabase = {
     password: "root",
     database: "sisdb",
 };
-export async function CreateRecord(query) {
-    const db = mysql.createConnection(localDatabase);
+
+export async function CreateRecord(query, database) {
+    const localdatabase = {
+        host: "localhost",
+        user: "root",
+        password: "root",
+        database: database,
+    }
+    const db = mysql.createConnection(localdatabase);
     try {
         await new Promise((resolve, reject) => {
             db.connect((err) => {
@@ -35,8 +42,15 @@ export async function CreateRecord(query) {
         db.end();
     }
 }
-export async function ReadRecord(query) {
-    const db = mysql.createConnection(localDatabase);
+export async function ReadRecord(query, database) {
+    const localdatabase = {
+        host: "localhost",
+        user: "root",
+        password: "root",
+        database: database,
+    }
+    const db = mysql.createConnection(localdatabase);
+
     try {
         await new Promise((resolve, reject) => {
             db.connect((err) => {
@@ -68,8 +82,14 @@ export async function ReadRecord(query) {
         db.end();
     }
 }
-export async function InsertRecord(query, conditionquery) {
-    const db = mysql.createConnection(localDatabase);
+export async function InsertRecord(query, conditionquery, database) {
+    const localdatabase = {
+        host: "localhost",
+        user: "root",
+        password: "root",
+        database: database,
+    }
+    const db = mysql.createConnection(localdatabase);
     try {
         await new Promise((resolve, reject) => {
             db.connect((err) => {
@@ -105,8 +125,15 @@ export async function InsertRecord(query, conditionquery) {
         db.end();
     }
 }
-export async function DeleteRecord(query, conditionquery) {
-    const db = mysql.createConnection(localDatabase);
+export async function DeleteRecord(query, conditionquery, database) {
+    const localdatabase = {
+        host: "localhost",
+        user: "root",
+        password: "root",
+        database: database,
+    }
+
+    const db = mysql.createConnection(localdatabase);
     try {
         await new Promise((resolve, reject) => {
             db.connect((err) => {
@@ -142,8 +169,15 @@ export async function DeleteRecord(query, conditionquery) {
         db.end();
     }
 }
-export async function UpdateRecord(query) {
-    const db = mysql.createConnection(localDatabase);
+export async function UpdateRecord(query, database) {
+    const localdatabase = {
+        host: "localhost",
+        user: "root",
+        password: "root",
+        database: database,
+    }
+
+    const db = mysql.createConnection(localdatabase);
     try {
         await new Promise((resolve, reject) => {
             db.connect((err) => {

@@ -46,6 +46,6 @@ app.post("/newlogin", async (req, res) => {
         token: token,
     });
 });
-app.post("/symb", Symb);
+app.post("/server", Symb);
 io.on("connection", SocketSymb);
 httpServer.listen(port, () => console.dir("Server is working on Port:" + port + " in " + envMode + " Mode."));
